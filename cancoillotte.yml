@@ -1,0 +1,44 @@
+# ethereum keystore
+ethereum:
+  endpoint: "/home/user/.local/share/io.parity.ethereum/jsonrpc.ipc"
+  keystore: "keystore.json"
+  password: ""
+
+# badger DB settings
+badger:
+  datadir: "data"
+
+# website API settings
+website:
+  url: "https://unp.cheezewizards.com"
+  api: "https://api.unpasteurized.cheezewizards.com/query"
+  token: ""
+
+# alchemy API settings
+alchemy:
+  url: "https://cheezewizards-mainnet.alchemyapi.io"
+  token: ""
+  email: ""
+
+# contract addresses
+contracts:
+  resolver: "0x1856a84019d982880607266526f13df232c15cfc"
+  wizardguild: "0x35B7838dd7507aDA69610397A85310AE0abD5034"
+  gatekeeper: "0x673B537956a28e40aAA8D929Fd1B6688C1583dda"
+  tournament: "0xDd903896AaCC543Abeef0dEeA9B2a27496f762aD"
+
+# strategy parameters
+strategy:
+
+  # how much ether to keep (in wei); above this limit, we summon new wizards
+  reserve: 100000000000000000
+
+  # the gas cost to use for important actions, such as timeouts on unpasteurized
+  extra: 10000000000
+
+  # the ratio at which we summon the different elements
+  ratio:
+    fire: 1     # 2
+    water: 1    # 3
+    wind: 1     # 4
+    neutral: 0  # 1 

@@ -1,0 +1,6 @@
+/data/
+/cancoillotte
+/*.log
+/*.json
+/*.yml
+!cancoillotte.yml

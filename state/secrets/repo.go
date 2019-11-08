@@ -3,6 +3,7 @@
 package secrets
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -38,20 +39,22 @@ func NewRepo(log zerolog.Logger, kv *database.KV) (*Repo, error) {
 func (r *Repo) Backup(sec model.Secret) error {
 	r.Lock()
 	defer r.Unlock()
+	key := fmt.Sprintf("%v-%d", sec.ChaID, sec.WizID)
 	err := r.kv.Secret(sec)
 	if err != nil {
 		return errors.Wrap(err, "could not save secret")
 	}
-	r.secrets[sec.ChaID] = sec
+	r.secrets[key] = sec
 	return nil
 }
 
-func (r *Repo) Recover(chaID string) (model.Secret, error) {
+func (r *Repo) Recover(chaID string, wizID uint64) (model.Secret, error) {
 	r.Lock()
 	defer r.Unlock()
-	sec, ok := r.secrets[chaID]
+	key := fmt.Sprintf("%v-%d", chaID, wizID)
+	sec, ok := r.secrets[key]
 	if !ok {
-		return model.Secret{}, errors.Errorf("missing challenge ID (%s)", chaID)
+		return model.Secret{}, errors.Errorf("missing challenge key (%s)", key)
 	}
 	return sec, nil
 }

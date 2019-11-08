@@ -940,16 +940,18 @@ func (s *Standard) reveal(ctx context.Context, challenges model.ChallengeList) {
 			Str("status", cha.Status).
 			Logger()
 
-		// retrieve the secret associated with the challenge
-		secret, err := s.sec.Recover(cha.ID)
-		if err != nil {
-			log.Error().Err(err).Msg("could not recover secret")
-			continue
-		}
-
 		// reveal if we are the home wizard
 		if cha.Owner1 == address {
-			key := secret.Key(cha.Wiz1, cha.Wiz2, cha.Wiz1)
+
+			// retrieve the secret associated with the home side
+			secret, err := s.sec.Recover(cha.ID, cha.Wiz1)
+			if err != nil {
+				log.Error().Err(err).Msg("could not recover secret")
+				continue
+			}
+
+			// reveal the salt and moves
+			key := secret.Key(cha.Wiz1, cha.Wiz2)
 			log = log.With().
 				Hex("set", secret.Set[:]).
 				Hex("salt", secret.Salt[:]).
@@ -961,12 +963,22 @@ func (s *Standard) reveal(ctx context.Context, challenges model.ChallengeList) {
 				log.Error().Err(err).Msg("could not submit home reveal")
 				continue
 			}
+
 			log.Info().Msg("home reveal submitted")
 		}
 
 		// reveal if we are the away wizard
 		if cha.Owner2 == address {
-			key := secret.Key(cha.Wiz1, cha.Wiz2, cha.Wiz2)
+
+			// retrieve the secret associated with the away side
+			secret, err := s.sec.Recover(cha.ID, cha.Wiz2)
+			if err != nil {
+				log.Error().Err(err).Msg("could not recover secret")
+				continue
+			}
+
+			// reveal the salt and moves
+			key := secret.Key(cha.Wiz1, cha.Wiz2)
 			log = log.With().
 				Hex("set", secret.Set[:]).
 				Hex("salt", secret.Salt[:]).
@@ -978,6 +990,7 @@ func (s *Standard) reveal(ctx context.Context, challenges model.ChallengeList) {
 				log.Error().Err(err).Msg("could not submit away reveal")
 				continue
 			}
+
 			log.Info().Msg("away reveal submitted")
 		}
 	}
@@ -1012,8 +1025,7 @@ func (s *Standard) commit(ctx context.Context, challenges model.ChallengeList) {
 	// get all pending challenges that we received
 	incoming := challenges.
 		Filter(challenge.Owner2(s.info.Address())).
-		Filter(challenge.Status(challenge.Sent)).
-		Swap(challenge.Owner2(s.info.Address()))
+		Filter(challenge.Status(challenge.Sent))
 	if len(incoming) != 0 {
 		log.Debug().Int("incoming", len(incoming)).Msg("found pending incoming challenges")
 		pending = append(pending, incoming...)
@@ -1023,6 +1035,8 @@ func (s *Standard) commit(ctx context.Context, challenges model.ChallengeList) {
 		log.Debug().Msg("no pending commits")
 		return
 	}
+
+	address := s.info.Address()
 
 	// send our commit for all pending challenges
 CommitLoop:
@@ -1051,46 +1065,95 @@ CommitLoop:
 			continue
 		}
 
-		// calculate best strategy and pick a random set
-		strat := s.pickStrategy(s.duel.Select(), wiz1, wiz2)
-		set := strat.Sets[rand.Intn(len(strat.Sets))]
+		// generate commit for home side
+		if cha.Owner1 == address {
 
-		// store the set to get the commit
-		secret := generateSecret(cha.ID, set)
-		err = s.sec.Backup(secret)
-		if err != nil {
-			log.Error().Err(err).Msg("could not backup secret")
-			continue
+			// calculate best strategy and pick a random set
+			strat := s.pickStrategy(s.duel.Select(), wiz1, wiz2)
+			set := strat.Sets[rand.Intn(len(strat.Sets))]
+
+			// store the set to get the commit
+			secret := generateSecret(cha.ID, set, wiz1.ID)
+			err = s.sec.Backup(secret)
+			if err != nil {
+				log.Error().Err(err).Msg("could not backup secret")
+				continue
+			}
+
+			log = log.With().
+				Uint64("wiz1", cha.Wiz1).
+				Uint64("wiz2", cha.Wiz2).
+				Uint32("nonce1", wiz1.Nonce).
+				Uint32("nonce2", wiz2.Nonce).
+				Hex("set", secret.Set[:]).
+				Hex("salt", secret.Salt[:]).
+				Hex("commit", secret.Commit[:]).
+				Str("status", cha.Status).
+				Logger()
+
+			// get the signature
+			sig, err := s.getSignature(cha.Wiz1, cha.Wiz2, wiz1.Nonce, wiz2.Nonce, secret.Commit)
+			if err != nil {
+				log.Error().Err(err).Msg("could not get signature")
+				continue
+			}
+
+			log = log.With().Hex("sig", sig).Logger()
+
+			// send the commit to the web API
+			_, err = s.web.Commit(cha.Wiz1, s.info.Address(), cha.ID, secret.Commit, sig)
+			if err != nil {
+				log.Error().Err(err).Msg("could not submit commit")
+				continue
+			}
+
+			log.Info().Msg("home commit submitted")
 		}
 
-		log = log.With().
-			Uint64("wiz1", cha.Wiz1).
-			Uint64("wiz2", cha.Wiz2).
-			Uint32("nonce1", wiz1.Nonce).
-			Uint32("nonce2", wiz2.Nonce).
-			Hex("set", secret.Set[:]).
-			Hex("salt", secret.Salt[:]).
-			Hex("commit", secret.Commit[:]).
-			Str("status", cha.Status).
-			Logger()
+		// generate commit for away side
+		if cha.Owner2 == address {
 
-		// get the signature
-		sig, err := s.getSignature(cha.Wiz1, cha.Wiz2, wiz1.Nonce, wiz2.Nonce, secret.Commit)
-		if err != nil {
-			log.Error().Err(err).Msg("could not get signature")
-			continue
+			// calculate best strategy and pick a random set
+			strat := s.pickStrategy(s.duel.Select(), wiz2, wiz1)
+			set := strat.Sets[rand.Intn(len(strat.Sets))]
+
+			// store the set to get the commit
+			secret := generateSecret(cha.ID, set, wiz2.ID)
+			err = s.sec.Backup(secret)
+			if err != nil {
+				log.Error().Err(err).Msg("could not backup secret")
+				continue
+			}
+
+			log = log.With().
+				Uint64("wiz1", cha.Wiz1).
+				Uint64("wiz2", cha.Wiz2).
+				Uint32("nonce1", wiz1.Nonce).
+				Uint32("nonce2", wiz2.Nonce).
+				Hex("set", secret.Set[:]).
+				Hex("salt", secret.Salt[:]).
+				Hex("commit", secret.Commit[:]).
+				Str("status", cha.Status).
+				Logger()
+
+			// get the signature
+			sig, err := s.getSignature(cha.Wiz1, cha.Wiz2, wiz1.Nonce, wiz2.Nonce, secret.Commit)
+			if err != nil {
+				log.Error().Err(err).Msg("could not get signature")
+				continue
+			}
+
+			log = log.With().Hex("sig", sig).Logger()
+
+			// send the commit to the web API
+			_, err = s.web.Commit(cha.Wiz1, s.info.Address(), cha.ID, secret.Commit, sig)
+			if err != nil {
+				log.Error().Err(err).Msg("could not submit commit")
+				continue
+			}
+
+			log.Info().Msg("away commit submitted")
 		}
-
-		log = log.With().Hex("sig", sig).Logger()
-
-		// send the commit to the web API
-		_, err = s.web.Commit(cha.Wiz1, s.info.Address(), cha.ID, secret.Commit, sig)
-		if err != nil {
-			log.Error().Err(err).Msg("could not submit commit")
-			continue
-		}
-
-		log.Info().Msg("duel commit submitted")
 	}
 }
 
@@ -1619,7 +1682,7 @@ func fakePowInternal(x *big.Int, y *big.Int, den *big.Int, its uint) *big.Int {
 	return res
 }
 
-func generateSecret(chaID string, set model.Set) model.Secret {
+func generateSecret(chaID string, set model.Set, wizID uint64) model.Secret {
 
 	// geneerate a random salt
 	var salt model.Hash
@@ -1634,6 +1697,7 @@ func generateSecret(chaID string, set model.Set) model.Secret {
 	// build the secret
 	secret := model.Secret{
 		ChaID:  chaID,
+		WizID:  wizID,
 		Set:    set,
 		Salt:   salt,
 		Commit: model.Hash(commit),

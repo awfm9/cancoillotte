@@ -78,6 +78,9 @@ func (k *KV) Wizards() (model.WizardList, error) {
 
 func (k *KV) Secret(sec model.Secret) error {
 	key := []byte(sec.ChaID)
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, sec.WizID)
+	key = append(key, buf...)
 	err := k.set(SecretCode, key, sec)
 	if err != nil {
 		return errors.Wrap(err, "could not save secret")

@@ -10,17 +10,18 @@ import (
 
 type Secret struct {
 	ChaID  string
+	WizID  uint64
 	Set    Set
 	Commit Hash
 	Salt   Hash
 }
 
-func (s Secret) Key(wizID1 uint64, wizID2 uint64, wizID uint64) string {
+func (s Secret) Key(wizID1 uint64, wizID2 uint64) string {
 	full := s.Set.Full()
 	key := fmt.Sprintf("CW::revealKey::v1::%d::%d::%d::%x::%x",
 		wizID1,
 		wizID2,
-		wizID,
+		s.WizID,
 		s.Salt,
 		full,
 	)
